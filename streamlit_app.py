@@ -202,7 +202,9 @@ for e in events:
 # 1) On load, grab the current “hide” value from the URL (or default to empty)
 initial_hide = st.query_params.get("hide", "")
 
-saved_filters_exist = bool(load_user_exclusions(user_email))
+saved_filters_exist = False
+if "user_email" in st.session_state:
+    saved_filters_exist = bool(load_user_exclusions(st.session_state.user_email))
 
 negation_input = st.text_input(
     'Hide events by name (prefix with "-")',
