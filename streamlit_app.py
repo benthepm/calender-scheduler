@@ -101,17 +101,36 @@ st.write("Find and prepare for important events coming up in your calendar by hi
 if "user_email" not in st.session_state:
     st.title("Login Required")
     st.write("To continue, please log in with your Google account.")
-    if st.button("🔐 Login with Google"):
-        temp_service = get_service()  # uses default token
-        user_email = get_user_email(temp_service)
+if "auth_flow" not in st.session_state:
+    flow = InstalledAppFlow.from_client_secrets_file(CREDENTIALS_FILE, SCOPES)
+    auth_url, _ = flow.authorization_url(prompt='consent')
+    st.session_state.auth_flow = flow
+    st.session_state.auth_url = auth_url
+    # Now get user-specific service
+    service = get_service(user_email)
 
-        # Now get user-specific service
-        service = get_service(user_email)
+    st.markdown(f"[🔐 Click here to authorize with Google]({st.session_state.auth_url})")
+    auth_code = st.text_input("Paste the authorization code here:")
 
-        # Save to session
+if auth_code:
+    flow = st.session_state.auth_flow
+    try:
+        flow.fetch_token(code=auth_code)
+        creds = flow.credentials
+        service = build("calendar", "v3", credentials=creds)
+        user_email = get_user_email(service)
+
+        token_file = get_token_filename(user_email)
+        with open(token_file, "w") as f:
+            f.write(creds.to_json())
+
         st.session_state.service = service
         st.session_state.user_email = user_email
+        st.success("✅ Login successful. Reloading...")
         st.rerun()
+    except Exception as e:
+        st.error("❌ Login failed. Please check the authorization code and try again.")
+    
     st.stop()
 else:
     service = st.session_state.service
