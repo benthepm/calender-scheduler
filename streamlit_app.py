@@ -93,54 +93,61 @@ def get_events(service, calendar_id: str, days: int):
     st.sidebar.write(f"➤ API returned {len(items)} events from `{calendar_id}`")
     return items
 
-# ── STREAMLIT UI ────────────────────────────────────────────────────────────────
-st.set_page_config(page_title="Google Calendar Event Filter", layout="wide")
-st.title("Google Calendar Important Event Filter")
-st.write("Find and prepare for important events coming up in your calendar by hiding the ones that don't matter.")
+def ensure_logged_in():
+    auth_code = None
 
-if "user_email" not in st.session_state:
+    if "user_email" in st.session_state and "service" in st.session_state:
+        return  # Already logged in
+
     st.title("Login Required")
     st.write("To continue, please log in with your Google account.")
-if "auth_flow" not in st.session_state:
-    flow = InstalledAppFlow.from_client_secrets_file(CREDENTIALS_FILE, SCOPES)
-    auth_url, _ = flow.authorization_url(prompt='consent')
-    st.session_state.auth_flow = flow
-    st.session_state.auth_url = auth_url
-    # Now get user-specific service
-    service = get_service(user_email)
+
+    if "auth_flow" not in st.session_state:
+        flow = InstalledAppFlow.from_client_secrets_file(CREDENTIALS_FILE, SCOPES)
+        auth_url, _ = flow.authorization_url(prompt='consent')
+        st.session_state.auth_flow = flow
+        st.session_state.auth_url = auth_url
 
     st.markdown(f"[🔐 Click here to authorize with Google]({st.session_state.auth_url})")
     auth_code = st.text_input("Paste the authorization code here:")
 
-if auth_code:
-    flow = st.session_state.auth_flow
-    try:
-        flow.fetch_token(code=auth_code)
-        creds = flow.credentials
-        service = build("calendar", "v3", credentials=creds)
-        user_email = get_user_email(service)
+    if auth_code:
+        try:
+            flow = st.session_state.auth_flow
+            flow.fetch_token(code=auth_code)
+            creds = flow.credentials
+            service = build("calendar", "v3", credentials=creds)
+            user_email = get_user_email(service)
 
-        token_file = get_token_filename(user_email)
-        with open(token_file, "w") as f:
-            f.write(creds.to_json())
+            token_file = get_token_filename(user_email)
+            with open(token_file, "w") as f:
+                f.write(creds.to_json())
 
-        st.session_state.service = service
-        st.session_state.user_email = user_email
-        st.success("✅ Login successful. Reloading...")
-        st.rerun()
-    except Exception as e:
-        st.error("❌ Login failed. Please check the authorization code and try again.")
-    
+            st.session_state.service = service
+            st.session_state.user_email = user_email
+            st.success("✅ Login successful. Reloading...")
+            st.rerun()
+
+        except Exception:
+            st.error("❌ Login failed. Please check the authorization code and try again.")
+
     st.stop()
-else:
-    service = st.session_state.service
-    user_email = st.session_state.user_email
 
-st.sidebar.write(f"Logged in as: {user_email}")
+# ── STREAMLIT UI ────────────────────────────────────────────────────────────────
+st.set_page_config(page_title="Google Calendar Event Filter", layout="wide")
 
-if st.sidebar.button("Logout"):
-    st.session_state.clear()
-    st.rerun()
+ensure_logged_in()
+
+service = st.session_state.service
+user_email = st.session_state.user_email
+
+st.title("Google Calendar Important Event Filter")
+st.write("Find and prepare for important events coming up in your calendar by hiding the ones that don't matter.")
+
+if "user_email" in st.session_state:
+    if st.sidebar.button("Logout"):
+        st.session_state.clear()
+        st.rerun()
 
 init_db()
 
@@ -202,9 +209,10 @@ for e in events:
 # 1) On load, grab the current “hide” value from the URL (or default to empty)
 initial_hide = st.query_params.get("hide", "")
 
-saved_filters_exist = False
 if "user_email" in st.session_state:
-    saved_filters_exist = bool(load_user_exclusions(st.session_state.user_email))
+    saved_filters_exist = bool(load_user_exclusions(user_email))
+else:
+    saved_filters_exist = False
 
 negation_input = st.text_input(
     'Hide events by name (prefix with "-")',
