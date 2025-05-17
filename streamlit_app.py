@@ -1,9 +1,6 @@
 import json
 import streamlit as st
 
-client_config = json.loads(st.secrets["GOOGLE_CLIENT_SECRET"])
-with open("credentials.json", "w") as f:
-    json.dump(client_config, f)
 import os
 import sqlite3
 from datetime import datetime, timedelta, timezone
@@ -15,8 +12,21 @@ from googleapiclient.discovery import build
 
 # ── CONFIG ─────────────────────────────────────────────────────────────────────
 SCOPES           = ["https://www.googleapis.com/auth/calendar.readonly"]
-CREDENTIALS_FILE = "credentials.json"
 TOKEN_FILE       = "token-personal.json"   # ← update if you renamed your token
+
+credentials_dict = {
+    "web": {
+        "client_id": st.secrets.google.client_id,
+        "project_id": st.secrets.google.project_id,
+        "auth_uri": st.secrets.google.auth_uri,
+        "token_uri": st.secrets.google.token_uri,
+        "auth_provider_x509_cert_url": st.secrets.google.auth_provider_x509_cert_url,
+        "client_secret": st.secrets.google.client_secret,
+        "redirect_uris": st.secrets.google.redirect_uris
+    }
+}
+with open("/tmp/client_secret.json", "w") as f:
+    json.dump(credentials_dict, f)
 
 def get_token_filename(user_email):
     safe_email = user_email.replace("@", "_at_").replace(".", "_dot_")
@@ -32,7 +42,7 @@ def get_service(user_email=None):
         if creds and creds.expired and creds.refresh_token:
             creds.refresh(Request())
         else:
-            flow = InstalledAppFlow.from_client_secrets_file(CREDENTIALS_FILE, SCOPES)
+            flow = InstalledAppFlow.from_client_secrets_file("/tmp/client_secret.json", SCOPES)
             creds = flow.run_local_server(port=0, open_browser=False)
         with open(token_file, "w") as token:
             token.write(creds.to_json())
@@ -103,7 +113,7 @@ def ensure_logged_in():
     st.write("To continue, please log in with your Google account.")
 
     if "auth_flow" not in st.session_state:
-        flow = InstalledAppFlow.from_client_secrets_file(CREDENTIALS_FILE, SCOPES)
+        flow = InstalledAppFlow.from_client_secrets_file("/tmp/client_secret.json", SCOPES)
         auth_url, _ = flow.authorization_url(prompt='consent')
         st.session_state.auth_flow = flow
         st.session_state.auth_url = auth_url
