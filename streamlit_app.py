@@ -1,6 +1,5 @@
 import json
 import streamlit as st
-
 import os
 import sqlite3
 from datetime import datetime, timedelta, timezone
@@ -9,6 +8,7 @@ from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build
+from google.oauth2 import service_account
 
 # ── CONFIG ─────────────────────────────────────────────────────────────────────
 SCOPES           = ["https://www.googleapis.com/auth/calendar.readonly"]
@@ -28,25 +28,68 @@ credentials_dict = {
 with open("/tmp/client_secret.json", "w") as f:
     json.dump(credentials_dict, f)
 
+def is_cloud_environment():
+    return "STREAMLIT_SERVER_PORT" in os.environ
+
 def get_token_filename(user_email):
     safe_email = user_email.replace("@", "_at_").replace(".", "_dot_")
     return f"token_{safe_email}.json"
 
-# ── GOOGLE SERVICE SETUP ────────────────────────────────────────────────────────
-def get_service(user_email=None):
-    creds = None
-    token_file = get_token_filename(user_email) if user_email else TOKEN_FILE
-    if os.path.exists(token_file):
-        creds = Credentials.from_authorized_user_file(token_file, SCOPES)
-    if not creds or not creds.valid:
-        if creds and creds.expired and creds.refresh_token:
-            creds.refresh(Request())
-        else:
-            flow = InstalledAppFlow.from_client_secrets_file("/tmp/client_secret.json", SCOPES)
-            creds = flow.run_local_server(port=0, open_browser=False)
-        with open(token_file, "w") as token:
-            token.write(creds.to_json())
-    return build("calendar", "v3", credentials=creds)
+def ensure_logged_in():
+    if is_cloud_environment():
+        credentials = service_account.Credentials.from_service_account_info(
+            st.secrets["gcp_service_account"], scopes=SCOPES
+        )
+        service = build("calendar", "v3", credentials=credentials)
+        user_email = st.secrets["gcp_service_account"]["client_email"]
+        st.session_state.service = service
+        st.session_state.user_email = user_email
+        return
+
+    auth_code = None
+    if "user_email" in st.session_state and "service" in st.session_state:
+        return
+
+    st.title("Login Required")
+    st.write("To continue, please log in with your Google account.")
+
+    if "auth_flow" not in st.session_state:
+        flow = InstalledAppFlow.from_client_secrets_file("/tmp/client_secret.json", SCOPES)
+        auth_url, _ = flow.authorization_url(prompt='consent')
+        st.session_state.auth_flow = flow
+        st.session_state.auth_url = auth_url
+
+    st.markdown(f"[🔐 Click here to authorize with Google]({st.session_state.auth_url})")
+    auth_code = st.text_input("Paste the authorization code here:")
+
+    if auth_code:
+        try:
+            flow = st.session_state.auth_flow
+            flow.fetch_token(code=auth_code)
+            creds = flow.credentials
+            service = build("calendar", "v3", credentials=creds)
+            calendar = service.calendarList().get(calendarId="primary").execute()
+            user_email = calendar.get("id", "unknown@example.com")
+
+            token_file = get_token_filename(user_email)
+            with open(token_file, "w") as f:
+                f.write(creds.to_json())
+
+            st.session_state.service = service
+            st.session_state.user_email = user_email
+            st.success("✅ Login successful. Reloading...")
+            st.rerun()
+        except Exception:
+            st.error("❌ Login failed. Please check the authorization code and try again.")
+
+    st.stop()
+
+# ── STREAMLIT UI ────────────────────────────────────────────────────────────────
+st.set_page_config(page_title="Google Calendar Event Filter", layout="wide")
+
+ensure_logged_in()
+service = st.session_state.service
+user_email = st.session_state.user_email
 
 def get_user_email(service):
     """Fetch the authenticated user's email using the primary calendar ID."""
@@ -102,57 +145,6 @@ def get_events(service, calendar_id: str, days: int):
     items = resp.get("items", [])
     st.sidebar.write(f"➤ API returned {len(items)} events from `{calendar_id}`")
     return items
-
-def ensure_logged_in():
-    auth_code = None
-
-    if "user_email" in st.session_state and "service" in st.session_state:
-        return  # Already logged in
-
-    st.title("Login Required")
-    st.write("To continue, please log in with your Google account.")
-
-    if "auth_flow" not in st.session_state:
-        flow = InstalledAppFlow.from_client_secrets_file("/tmp/client_secret.json", SCOPES)
-        auth_url, _ = flow.authorization_url(prompt='consent')
-        st.session_state.auth_flow = flow
-        st.session_state.auth_url = auth_url
-
-    st.markdown(f"[🔐 Click here to authorize with Google]({st.session_state.auth_url})")
-    auth_code = st.text_input("Paste the authorization code here:")
-
-    if auth_code:
-        try:
-            flow = st.session_state.auth_flow
-            flow.fetch_token(code=auth_code)
-            creds = flow.credentials
-            service = build("calendar", "v3", credentials=creds)
-            user_email = get_user_email(service)
-
-            token_file = get_token_filename(user_email)
-            with open(token_file, "w") as f:
-                f.write(creds.to_json())
-
-            st.session_state.service = service
-            st.session_state.user_email = user_email
-            st.success("✅ Login successful. Reloading...")
-            st.rerun()
-
-        except Exception:
-            st.error("❌ Login failed. Please check the authorization code and try again.")
-
-    st.stop()
-
-# ── STREAMLIT UI ────────────────────────────────────────────────────────────────
-st.set_page_config(page_title="Google Calendar Event Filter", layout="wide")
-
-ensure_logged_in()
-
-service = st.session_state.service
-user_email = st.session_state.user_email
-
-st.title("Google Calendar Important Event Filter")
-st.write("Find and prepare for important events coming up in your calendar by hiding the ones that don't matter.")
 
 if "user_email" in st.session_state:
     if st.sidebar.button("Logout"):
