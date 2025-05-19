@@ -9,6 +9,8 @@ from google.oauth2.credentials import Credentials
 from googleapiclient.discovery import build
 from google.oauth2 import service_account
 
+st.set_page_config(page_title="Google Calendar Event Filter", layout="wide")
+
 
 # ── CONFIG ─────────────────────────────────────────────────────────────────────
 SCOPES           = ["https://www.googleapis.com/auth/calendar.readonly"]
@@ -29,7 +31,6 @@ def ensure_logged_in():
     st.session_state.user_email = user_email
 
 # ── STREAMLIT UI ────────────────────────────────────────────────────────────────
-st.set_page_config(page_title="Google Calendar Event Filter", layout="wide")
 
 ensure_logged_in()
 service = st.session_state.service
