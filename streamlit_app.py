@@ -29,7 +29,7 @@ with open("/tmp/client_secret.json", "w") as f:
     json.dump(credentials_dict, f)
 
 def is_cloud_environment():
-    return "STREAMLIT_SERVER_PORT" in os.environ
+    return os.environ.get("HOME", "") == "/home/adminuser"
 
 def get_token_filename(user_email):
     safe_email = user_email.replace("@", "_at_").replace(".", "_dot_")
